@@ -1,0 +1,11 @@
+# Local tooling / agent skills (separate repository)
+/roblox-skills-main/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.log
+
+# Roblox Studio local backups / locks
+*.rbxl.lock
+*.rbxlx.lock
