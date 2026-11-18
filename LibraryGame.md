@@ -1,8 +1,12 @@
 # LibraryGame — Handoff
 
 Place: `Library is ALive` (placeId 134946025386458) — edited directly through Roblox Studio MCP.
-There is no Rojo project; **the Studio place is the source of truth**. This folder only holds this file.
-Place saved after the final pass: **TeamCreate version 64** (`save_place` → `Saved`).
+There is no Rojo project; **the cloud Studio place is the source of truth**.
+Place saved after the final pass: **TeamCreate version 67** (`save_place` → `Saved`).
+
+Repo: https://github.com/rikto-hash/LibraryALive, branch `main`. It holds the docs, an older
+`.rbxl` snapshot, and `src/` — a byte-identical export of the 18 place scripts so code changes
+produce readable diffs.
 
 ---
 
@@ -37,11 +41,14 @@ ServerScriptService
 └─ LibraryGame (Folder)
    ├─ Bootstrap         (Script)        entry point: init services, fill shelves
    ├─ Validate          (ModuleScript)  argument validation + token-bucket limiter
+   ├─ Data (Folder)
+   │  └─ ProfileTemplate (ModuleScript)  fresh-player profile shape + SchemaVersion
    └─ Services (Folder)
       ├─ BookService          (ModuleScript)  book instances, definitions, locations
       ├─ ShelfService         (ModuleScript)  shelf detection, decoration, slots, packing
       ├─ InventoryService     (ModuleScript)  per-player inventory + capacity
-      └─ InteractionService   (ModuleScript)  remote handlers (pickup / place / drop)
+      ├─ InteractionService   (ModuleScript)  remote handlers (pickup / place / drop)
+      └─ DataService          (ModuleScript)  per-player DataStore load/save
 
 ServerStorage
 └─ LibraryGame.StoredBooks (Folder)  books held by players live here
@@ -79,6 +86,7 @@ Runtime-generated per shelf model: `Books` (Folder), `Slots` (Folder, 3 invisibl
 | Raised all 8 shelf models by `+0.7` studs | They were sunk 0.7 into the floor |
 | Created `ReplicatedStorage.LibraryGame` + `Remotes` (5 RemoteEvents) | Shared config, catalog, messaging |
 | Created `ServerScriptService.LibraryGame` + `Services` | Server code container |
+| Created `ServerScriptService.LibraryGame.Data` | Holds `ProfileTemplate`; keeps the data shape apart from the services that use it |
 | Created `ServerStorage.LibraryGame.StoredBooks` | Books carried by players |
 | Created `StarterPlayerScripts.LibraryGame` + `Controllers` | Client code container |
 | Created `Workspace.LibraryGame` (`WorldBooks`, `ShelfSlots`) | World containers |
@@ -102,14 +110,56 @@ Runtime-generated per shelf model: `Books` (Folder), `Slots` (Folder, 3 invisibl
 | `...Services.ShelfService` | `analyze()` classifies boards/sides/back, derives front sign, builds 3 invisible slot markers (attributes `LibraryShelfId`, `LibrarySlotIndex`, `LibrarySlotWidth/Height`, `LibraryBookCount`, `LibraryRemaining`), decorates, packs left→right, tweens reflow, inserts at index, `canPlace`, `getCount()`, `getSlotCount()`. Rebuilds slot markers on re-tag (destroys old ones first). |
 | `...Services.InventoryService` | Per-player uid list, capacity checks, pushes `InventoryUpdated`, drops carried books when a player leaves. |
 | `...Services.InteractionService` | Validated, rate-limited handlers: pickup (distance, capacity, shelf removal), place (slot resolve, distance, fit, insert index), drop (distance clamp, downward raycast, spine faces player). Calls `DataService.incrementStat(player, "BooksShelved", 1)` on a successful place. `init()`/`start()` present for symmetry. |
+| `...Data.ProfileTemplate` | Fresh-player shape: `SchemaVersion = 1`, `Stats = { BooksShelved, SessionsPlayed, SecondsPlayed }`. Single source of truth so `DataService` never hard-codes defaults, and adding a field is one line + a migration. |
 | `...Services.DataService` | Per-player profile persistence (v1). Loads via `UpdateAsync` (3 retries), applies `ProfileTemplate` defaults, increments `SessionsPlayed` on load, accrues `SecondsPlayed` on save, flushes on `BindToClose`. Exposes `get`, `getStat`, `incrementStat`. |
 
-### Persistence (v1)
+### Persistence (v1) — see `SaveSchema.md`
 
-Schema is documented in `SaveSchema.md` and implemented by `...Services.DataService` + `...Data.ProfileTemplate`.
-The shared world library is session-only, carried books are session-only, and only per-player `Stats` persist.
-One DataStore key per player (`User_{UserId}`), `SchemaVersion = 1`. For a public launch, swap the DataStore
-wrapper for ProfileStore (session locking) and persist the shared world as one global record.
+| Piece | What it is | Why it exists |
+| --- | --- | --- |
+| `...Data.ProfileTemplate` | `{ SchemaVersion, Stats = { BooksShelved, SessionsPlayed, SecondsPlayed } }` | Defines what a fresh profile looks like, so fields are added once instead of in every load path. |
+| `...Services.DataService` | One key per player: store `PlayerProfiles_v1`, key `User_{UserId}` | Per-player data is the only state that *cannot* be rebuilt. The shelves and books regenerate from `BookCatalog` on every start. |
+| `UpdateAsync` + 3 retries | All reads and writes | Atomic read-modify-write (two joins can't clobber each other) and survives DataStore throttling or a transient failure. |
+| `PlayerRemoving` **and** `BindToClose` | Save points | `PlayerRemoving` alone loses everything if the server shuts down with players still inside. |
+| `InteractionService` hook | `incrementStat(player, "BooksShelved", 1)` only after a *successful* place | Only the server knows a placement succeeded, so the stat cannot be inflated by a client. |
+| `SchemaVersion` + `prepare()` | Template backfill on load | Old saves keep working and new fields appear with defaults; migrations get a version to switch on. |
+
+**Scope decision — why so little is saved.** The library is *shared*: one world state for 1–4 players.
+Saving it per player would let two clients overwrite each other's shelves, and saving it globally needs
+a lock/reserved server — so v1 keeps the shelves and carried books **session-only** and persists only
+per-player `Stats`. `SaveSchema.md` already documents the one-global-record shape for world saves later.
+
+**Verified** (API access enabled, read back from the Cloud DataStore across two Play sessions):
+`SessionsPlayed` 3 → 4, `SecondsPlayed` 88.5 → 118.85, `BooksShelved` held at 6, `SchemaVersion = 1`.
+No `StudioAccessToApisNotAllowed` in Output.
+
+**Not done yet.** No session locking: two servers could load the same profile. For a public launch
+swap this wrapper for ProfileStore rather than extending it.
+
+### Repository / GitHub backup (this pass)
+
+Repo: https://github.com/rikto-hash/LibraryALive, branch `main` (3 commits: initial, verified test
+results, `src/` export).
+
+| Item | What it is | Why it's there |
+| --- | --- | --- |
+| `src/` — 18 `.luau` files | Export of every script in the place, paths mirroring the DataModel | `.rbxl` is binary, so Git only reports "binary file changed". `src/` gives real, reviewable diffs of the code. |
+| Naming `.luau` / `.server.luau` / `.client.luau` | Derived from `ModuleScript` / `Script` / `LocalScript` | Roblox has no file extensions; this keeps the server and client `Bootstrap` distinguishable in one tree. |
+| `src/README.md` | File ↔ instance mapping table | The export is not a Rojo project, so readers must know it can't be edited in place. |
+| `.gitattributes` | `*.luau` = `text eol=lf`; `*.rbxl*` = `binary` | With `core.autocrlf=true`, the next export would otherwise show up as a whole-file CRLF rewrite. |
+| `.gitignore` | Excludes `roblox-skills-main/` | That folder is a separate skills repo (own README/LICENSE), not part of the game. |
+| `README.md`, `SaveSchema.md` | Orientation + the save schema | Short entry point for the repo; the schema sits next to the code implementing it. |
+
+**Export integrity:** every file was compared against Studio with an exact byte length + byte-sum
+check — 18/18 matched, so `src/` is a true snapshot, not a retyped copy.
+
+**What is *not* in the repo:** map geometry, GUIs, remotes, Lighting, Terrain. The `LibraryIsALive.rbxl`
+in the repo is an older 12:57 snapshot. MCP cannot write the cloud place back to disk (`save_place`
+saves to Roblox only, the localhost export bridge is blocked by the Assistant HTTP allowlist, and
+downloading the place asset returns 401) — refreshing it needs *File → Save to File* in Studio.
+
+**Drift warning:** `src/` is a snapshot, not a source. Editing it does not change the game, and it
+falls behind the place until the scripts live on disk (Rojo).
 
 ### Scripts — client
 
@@ -134,7 +184,8 @@ and touch and also handles releasing over crown/plinth parts.
 
 ## 3. Current State
 
-**Feature complete, all 11 handoff checklist items addressed, place saved.** Fresh-session output:
+**Feature complete, all 11 handoff checklist items addressed, plus 4 follow-ups this pass
+(persistence, persistence test, GitHub backup, script export). Place saved.** Fresh-session output:
 `LibraryGame ready: 8 shelves, 24 slots, 272 books`; catalog back to 16 books; no shelf-geometry
 warnings and no library-related errors in Output.
 
@@ -155,7 +206,7 @@ warnings and no library-related errors in Output.
 | Scalability — new book | Temporarily added a 17th `BookCatalog` entry: fresh server spawned 264 books including 8 `scalability_probe` copies; entry removed, fresh session back to 16 books / 272 copies. |
 | UI layout on 1014×422 viewport | Description box max bottom = 258 px, drop button top = 260 px → no overlap (2 px gap); box top = 14 px, on screen. Bar and drop button fit; toast clears the bar. |
 | Security / limits | `Validate` rejects NaN/`math.huge`, wrong types and oversized strings; `allowAction = rateLimiter(30, 1)` (30/s/player, burst); all distance checks run on the server (20 / 24 / 22 studs). |
-| Static checks | All 16 scripts compile with `loadstring`; no `[dbg` / debug `print` remains (only the intentional Bootstrap startup print). |
+| Static checks | All 18 scripts compile with `loadstring` (16 + `ProfileTemplate` + `DataService`); no `[dbg` / debug `print` remains (only the intentional Bootstrap startup print). |
 
 ### Remaining caveats
 
@@ -181,6 +232,9 @@ warnings and no library-related errors in Output.
    held at 6. Note: the local `LibraryIsALive.rbxl` in the repo is an older snapshot; the current
    scripts are exported to `src/` (see `src/README.md`). Use *File → Save to File* to refresh the
    `.rbxl` with the full place (map + geometry).
+8. **`src/` can drift** — it is a manual export, not the source. Re-export after any script change in
+   Studio, or the repo will describe an older build. Integrity of *this* export was confirmed with a
+   byte length + byte-sum comparison per file (18/18 matched).
 
 ---
 
@@ -200,10 +254,19 @@ warnings and no library-related errors in Output.
    17th catalog entry spawned; both test artifacts removed.
 8. ~~Rate limiting and distances~~ — **DONE**: 30 calls/s/player, NaN-safe validation, server-side
    20/24/22-stud checks; no debug prints left.
-9. ~~Script Analysis (`--!strict`) review~~ — **DONE as far as MCP allows**: all 16 scripts read and
+9. ~~Script Analysis (`--!strict`) review~~ — **DONE as far as MCP allows**: all 18 scripts read and
    compiled, no warnings in Output; IDE panel remains the authoritative place for style diagnostics.
 10. ~~Two-player test~~ — **NOT RUN** (no second client available; see caveat 1).
-11. ~~Save the place~~ — **DONE**: `save_place` → `Saved`, TeamCreate version 64.
+11. ~~Save the place~~ — **DONE**: `save_place` → `Saved`, TeamCreate version 67.
+12. ~~Persistence layer~~ — **DONE**: `ProfileTemplate` + `DataService`, `DataService.init()` first in
+    `Bootstrap`, `BooksShelved` hook in `InteractionService`; all four compile, modules require and
+    expose `get` / `getStat` / `incrementStat`.
+13. ~~Persistence test~~ — **DONE**: two Play sessions against the Cloud DataStore; counters persisted
+    (numbers in the Persistence table and caveat 7).
+14. ~~Back up to GitHub~~ — **DONE**: repo initialized, `.gitignore` + `.gitattributes` + `README.md`,
+    three commits pushed to `main`.
+15. ~~Export scripts to disk~~ — **DONE**: 18 files under `src/`, byte-identical to the place, with
+    `src/README.md` explaining the mapping and the limitations.
 
 ### Final tunable list
 
@@ -217,12 +280,20 @@ warnings and no library-related errors in Output.
   `ShelfSnapPadding = 0.6`.
 - `Config.Theme` / `Config.Wood` — UI and shelf colours; `Config.RemoteNames` — remote names.
 - `Validate.rateLimiter(30, 1)` in `InteractionService` — remote-call budget per player.
+- `DataService` — DataStore `PlayerProfiles_v1`, key `User_{UserId}`, 3 retries per call; saves on
+  `PlayerRemoving` and `BindToClose`. Change the store name only with a migration plan, or old saves
+  become invisible.
 - `UIController.BOX_POSITION` / `BOX_HIDDEN_POSITION` — description box placement (-52 px from centre).
 - `BookCatalog` — add/remove/edit books; no other file needs changing for new book data.
 
 ### Known limitations
 
-- No persistence: shelves are rebuilt and books are respawned on every server start.
+- **No world persistence (v1):** shelves are rebuilt and books respawned on every server start;
+  only per-player `Stats` persist. Carried books are session-only too.
+- **No session locking:** `DataService` uses plain `UpdateAsync`; two servers could load the same
+  profile. Acceptable for a small co-op place, not for a public launch.
+- **No Rojo:** scripts live in the place, so `src/` is a one-way export and cannot be edited back
+  into the game.
 - Books are 4 anchored parts each (~1088 parts at 272 books) — intended for a small library.
 - One test-only shelf clone and one test-only catalog entry were used in Play/Edit and both removed
   before the final save; the saved place has the original 8 shelves / 16 books.
