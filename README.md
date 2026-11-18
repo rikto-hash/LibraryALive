@@ -5,7 +5,8 @@ The library is shared by 1–4 players and fully server-authoritative.
 
 ## Files
 
-- `LibraryIsALive.rbxl` — the Roblox place (open in Studio).
+- `LibraryIsALive.rbxl` — the Roblox place (open in Studio). This is an older local snapshot.
+- `src/` — readable export of all 18 scripts currently in the place (see `src/README.md`).
 - `LibraryGame.md` — full handoff: structure, systems, verification, caveats.
 - `SaveSchema.md` — per-player save schema (`ProfileTemplate` + `DataService`).
 - `IssueAndPlan.md` — remaining work and priorities.
@@ -19,5 +20,7 @@ Testing persistence in Studio requires **Game Settings → Security → Enable S
 
 ## Note
 
-The Lua source currently lives inside the `.rbxl` place file. A future step is to move the
-scripts to disk with Rojo so Git can track script changes as readable diffs.
+The authoritative Lua source lives inside the place in Roblox Studio. `src/` is a
+point-in-time export for readable diffs in Git, not a Rojo project — editing `src/` does
+not change the game, and the map geometry only exists in the `.rbxl`/cloud place. To
+capture the full place, use Studio's *File → Save to File* and commit the `.rbxl`.

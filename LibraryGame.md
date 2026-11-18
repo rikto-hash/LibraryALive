@@ -178,8 +178,9 @@ warnings and no library-related errors in Output.
    inspect instances (`StoredBooks` children, slot attributes, `WorldBooks`) instead of module state.
 7. **DataStore persistence verified in Studio** (API access enabled). Across two play sessions the
    stored profile went `SessionsPlayed` 3 → 4 and `SecondsPlayed` 88.5 → 118.85, with `BooksShelved`
-   held at 6. Note: the local `LibraryIsALive.rbxl` in the repo is a snapshot; refresh it with
-   *File → Save to File* to include scripts added to the cloud place.
+   held at 6. Note: the local `LibraryIsALive.rbxl` in the repo is an older snapshot; the current
+   scripts are exported to `src/` (see `src/README.md`). Use *File → Save to File* to refresh the
+   `.rbxl` with the full place (map + geometry).
 
 ---
 

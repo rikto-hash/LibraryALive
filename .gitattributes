@@ -1,0 +1,11 @@
+# Roblox place files are binary — never diff, merge, or convert them.
+*.rbxl   binary
+*.rbxlx  binary
+*.rbxm   binary
+*.rbxmx  binary
+
+# Exported script sources stay LF so a re-export never shows up as a whole-file change.
+*.luau   text eol=lf
+
+# Docs: normalise on commit, allow either ending on checkout.
+*.md     text
