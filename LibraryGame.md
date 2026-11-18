@@ -176,10 +176,10 @@ warnings and no library-related errors in Output.
    in tests. This mismatch is exactly why the original drag release ray missed.
 6. `require` inside `execute_luau` creates a **separate module instance** from running scripts;
    inspect instances (`StoredBooks` children, slot attributes, `WorldBooks`) instead of module state.
-7. **DataStore persistence could not be exercised in Studio** — it needs *Game Settings → Security →
-   Enable Studio Access to API Services*. With it off, Play logs `StudioAccessToApisNotAllowed` and
-   `DataService` falls back to `ProfileTemplate`. Once enabled, verify by join → shelve a book → leave
-   → rejoin and confirm `BooksShelved` / `SessionsPlayed` persisted.
+7. **DataStore persistence verified in Studio** (API access enabled). Across two play sessions the
+   stored profile went `SessionsPlayed` 3 → 4 and `SecondsPlayed` 88.5 → 118.85, with `BooksShelved`
+   held at 6. Note: the local `LibraryIsALive.rbxl` in the repo is a snapshot; refresh it with
+   *File → Save to File* to include scripts added to the cloud place.
 
 ---
 
